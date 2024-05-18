@@ -1,12 +1,12 @@
 const port = 4000;
 const express = require("express");
 const app = express();
-
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const path = require("path");
 const cors = require("cors");
+const { Product, Users } = require("./models");
 
 app.use(express.json());
 app.use(cors());
@@ -45,41 +45,6 @@ app.post("/upload", upload.single("product"), (req, res) => {
 		success: 1,
 		image_url: `http://localhost:${port}/images/${req.file.filename}`,
 	});
-});
-
-const Product = mongoose.model("Product", {
-	id: {
-		type: Number,
-		required: true,
-	},
-	name: {
-		type: String,
-		required: true,
-	},
-	image: {
-		type: String,
-		required: true,
-	},
-	category: {
-		type: String,
-		required: true,
-	},
-	new_price: {
-		type: Number,
-		required: true,
-	},
-	old_price: {
-		type: Number,
-		required: true,
-	},
-	date: {
-		type: Date,
-		default: Date.now(),
-	},
-	available: {
-		type: Boolean,
-		default: true,
-	},
 });
 
 app.post("/addproduct", async (req, res) => {
@@ -127,28 +92,6 @@ app.get("/allproducts", async (req, res) => {
 	res.json(products);
 });
 
-//Schema for user creation
-
-const Users = mongoose.model("Users", {
-	name: {
-		type: String,
-	},
-	email: {
-		type: String,
-		unique: true,
-	},
-	password: {
-		type: String,
-	},
-	cartData: {
-		type: Object,
-	},
-	date: {
-		type: Date,
-		default: Date.now(),
-	},
-});
-
 // Creating end point for registering the user
 
 app.post("/signup", async (req, res) => {
@@ -168,7 +111,7 @@ app.post("/signup", async (req, res) => {
 		name: req.body.username,
 		email: req.body.email,
 		password: req.body.password,
-		cartDaata: cart,
+		cartData: cart,
 	});
 
 	await user.save();
@@ -218,11 +161,54 @@ app.get("/popularinwomen", async (req, res) => {
 	res.send(popular_in_women);
 });
 
-//Creating endpoint for popular in women category data
-app.get("/addtocart", async (req, res) => {
-	let products = await Product.find({ category: "women" });
-	let popular_in_women = products.slice(0, 4);
-	res.send(popular_in_women);
+// Creating middleware to fetch user
+
+const fetchUser = async (req, res, next) => {
+	const token = req.header("auth-token");
+	if (!token) {
+		res.status(401).send({ errors: "Please aunthenticate using valid token" });
+	} else {
+		try {
+			const data = jwt.verify(token, "secret_ecom");
+			req.user = data.user;
+			next();
+		} catch (error) {
+			res
+				.status(401)
+				.send({ errors: "Please authenticate using a valid token" });
+		}
+	}
+};
+
+// Creating endpoint for add to cart
+app.post("/addtocart", fetchUser, async (req, res) => {
+	let userData = await Users.findOne({ _id: req.user.id });
+	userData.cartData[req.body.itemId] += 1;
+	await Users.findOneAndUpdate(
+		{ _id: req.user.id },
+		{ cartData: userData.cartData }
+	);
+	res.send("Added");
+});
+
+// Creating endpoint for removing from cart
+app.post("/removefromcart", fetchUser, async (req, res) => {
+	let userData = await Users.findOne({ _id: req.user.id });
+	if (userData.cartData[req.body.itemId] > 0) {
+		userData.cartData[req.body.itemId] -= 1;
+	}
+	await Users.findOneAndUpdate(
+		{ _id: req.user.id },
+		{ cartData: userData.cartData }
+	);
+	res.send("Removed");
+});
+
+// Creating endpoint to get cartdata
+
+app.post("/getcart", fetchUser, async (req, res) => {
+	let userData = await Users.findOne({ _id: req.user.id });
+	res.json(userData.cartData);
 });
 
 app.listen(port, (error) => {
